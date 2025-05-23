@@ -15,5 +15,4 @@ regex>=2023.0.0
 
 # PDF and text extraction
 textract==1.6.5
-pdfplumber==0.5.28
-pdfminer.six==20191110
+pdfplumber==0.6.0
