@@ -7,6 +7,7 @@ from textblob import TextBlob
 from typing import List, Dict, Tuple, Optional
 import logging
 from datetime import datetime
+import tempfile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,44 +27,110 @@ class TextExtractor:
             file_extension = uploaded_file.name.split('.')[-1].lower()
             
             if file_extension == 'pdf':
+                # Method 1: Try pdfplumber first (more reliable)
+                try:
+                    import pdfplumber
+                    import io
+                    
+                    # Reset file pointer and read as bytes
+                    uploaded_file.seek(0)
+                    pdf_bytes = uploaded_file.read()
+                    
+                    text = ""
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        for page in pdf.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text += page_text + "\n"
+                    
+                    if text.strip():
+                        return text, ""
+                        
+                except ImportError:
+                    pass  # Fall back to textract
+                except Exception as e:
+                    logger.warning(f"pdfplumber failed: {str(e)}, trying textract...")
+                
+                # Method 2: Fall back to textract with temporary file
                 try:
                     import textract
-                    text = textract.process(uploaded_file, extension='pdf').decode('utf-8')
+                    
+                    # Create temporary file
+                    uploaded_file.seek(0)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                        tmp_file.write(uploaded_file.getbuffer())
+                        tmp_file_path = tmp_file.name
+                    
+                    try:
+                        text = textract.process(tmp_file_path).decode('utf-8')
+                        return text, ""
+                    finally:
+                        # Clean up temporary file
+                        os.unlink(tmp_file_path)
+                        
                 except ImportError:
-                    return "", "PDF processing library not available. Please install textract."
+                    return "", "PDF processing libraries not available. Please install pdfplumber or textract."
                 except Exception as e:
                     return "", f"Error processing PDF: {str(e)}"
                     
             elif file_extension == 'docx':
                 try:
                     import docx2txt
-                    text = docx2txt.process(uploaded_file)
+                    
+                    # Create temporary file for docx processing
+                    uploaded_file.seek(0)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_file:
+                        tmp_file.write(uploaded_file.getbuffer())
+                        tmp_file_path = tmp_file.name
+                    
+                    try:
+                        text = docx2txt.process(tmp_file_path)
+                        return text, ""
+                    finally:
+                        os.unlink(tmp_file_path)
+                        
                 except ImportError:
-                    return "", "DOCX processing library not available. Please install docx2txt."
+                    # Alternative method using python-docx
+                    try:
+                        from docx import Document
+                        import io
+                        
+                        uploaded_file.seek(0)
+                        doc = Document(io.BytesIO(uploaded_file.read()))
+                        text = ""
+                        for paragraph in doc.paragraphs:
+                            text += paragraph.text + "\n"
+                        return text, ""
+                    except ImportError:
+                        return "", "DOCX processing library not available. Please install docx2txt or python-docx."
                 except Exception as e:
                     return "", f"Error processing DOCX: {str(e)}"
                     
             elif file_extension == 'txt':
                 try:
+                    uploaded_file.seek(0)
                     text = uploaded_file.read().decode('utf-8')
+                    return text, ""
                 except UnicodeDecodeError:
                     try:
                         uploaded_file.seek(0)
                         text = uploaded_file.read().decode('latin-1')
+                        return text, ""
                     except Exception as e:
                         return "", f"Error reading text file: {str(e)}"
                         
             else:
                 return "", f"Unsupported file format: {file_extension}"
                 
-            if not text or len(text.strip()) < 50:
-                return "", "File appears to be empty or too short to process."
-                
-            return text, ""
-            
         except Exception as e:
             logger.error(f"Unexpected error in text extraction: {str(e)}")
             return "", f"Unexpected error: {str(e)}"
+        
+        # Final validation
+        if not text or len(text.strip()) < 50:
+            return "", "File appears to be empty or too short to process."
+            
+        return text, ""
 
 # Enhanced skill extraction
 class SkillExtractor:
