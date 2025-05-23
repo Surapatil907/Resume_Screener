@@ -28,8 +28,7 @@ class TextExtractor:
             return tmp_file.name
 
     @staticmethod
-    @staticmethod
-def extract_text_from_file(uploaded_file) -> Tuple[str, str]:
+    def extract_text_from_file(uploaded_file) -> Tuple[str, str]:
     """
     Extract text from an uploaded file or a file path (string).
     Returns: (extracted_text, error_message)
@@ -127,6 +126,7 @@ def extract_text_from_file(uploaded_file) -> Tuple[str, str]:
     except Exception as e:
         logger.error(f"Unexpected error in text extraction: {str(e)}")
         return "", f"Unexpected error: {str(e)}"
+
 
 # Enhanced skill extraction
 class SkillExtractor:
