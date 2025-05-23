@@ -28,106 +28,105 @@ class TextExtractor:
             return tmp_file.name
 
     @staticmethod
-    def extract_text_from_file(uploaded_file) -> Tuple[str, str]:
-        """
-        Extract text from uploaded file with detailed error reporting.
-        Returns: (extracted_text, error_message)
-        """
-        try:
+    @staticmethod
+def extract_text_from_file(uploaded_file) -> Tuple[str, str]:
+    """
+    Extract text from an uploaded file or a file path (string).
+    Returns: (extracted_text, error_message)
+    """
+    try:
+        if isinstance(uploaded_file, str):
+            file_path = uploaded_file
+            file_extension = os.path.splitext(file_path)[-1].lower().strip(".")
+        else:
             file_extension = uploaded_file.name.split('.')[-1].lower()
 
-            if file_extension == 'pdf':
-                # Method 1: Try pdfplumber first
-                try:
-                    import pdfplumber
-                    import io
+        if file_extension == 'pdf':
+            # Try pdfplumber first
+            try:
+                import pdfplumber
+                import io
 
+                if isinstance(uploaded_file, str):
+                    with open(file_path, "rb") as f:
+                        pdf = pdfplumber.open(f)
+                        text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+                        pdf.close()
+                else:
                     uploaded_file.seek(0)
                     pdf_bytes = uploaded_file.read()
-                    text = ""
                     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                        for page in pdf.pages:
-                            page_text = page.extract_text()
-                            if page_text:
-                                text += page_text + "\n"
-
-                    if not text or len(text.strip()) < 50:
-                        logger.warning("PDF text is too short or empty with pdfplumber.")
-                        raise ValueError("Insufficient text")
-
-                    return text, ""
-
-                except Exception as e:
-                    logger.warning(f"pdfplumber failed or returned too little text: {str(e)}. Falling back to textract.")
-
-                # Method 2: Fall back to textract
-                try:
-                    import textract
-                    tmp_file_path = TextExtractor.save_uploaded_to_temp_file(uploaded_file, ".pdf")
-
-                    try:
-                        text = textract.process(tmp_file_path).decode('utf-8')
-                        if not text or len(text.strip()) < 50:
-                            return "", "PDF appears to be empty or too short to process."
-                        return text, ""
-                    finally:
-                        os.unlink(tmp_file_path)
-
-                except ImportError:
-                    return "", "PDF processing libraries not available. Please install pdfplumber or textract."
-                except Exception as e:
-                    return "", f"Error processing PDF: {str(e)}"
-
-            elif file_extension == 'docx':
-                try:
-                    import docx2txt
-                    tmp_file_path = TextExtractor.save_uploaded_to_temp_file(uploaded_file, ".docx")
-
-                    try:
-                        text = docx2txt.process(tmp_file_path)
-                        if not text or len(text.strip()) < 50:
-                            return "", "DOCX appears to be empty or too short to process."
-                        return text, ""
-                    finally:
-                        os.unlink(tmp_file_path)
-
-                except ImportError:
-                    try:
-                        from docx import Document
-                        import io
-
-                        uploaded_file.seek(0)
-                        doc = Document(io.BytesIO(uploaded_file.read()))
-                        text = "\n".join(p.text for p in doc.paragraphs)
-
-                        if not text or len(text.strip()) < 50:
-                            return "", "DOCX appears to be empty or too short to process."
-                        return text, ""
-                    except ImportError:
-                        return "", "DOCX processing library not available. Please install docx2txt or python-docx."
-                except Exception as e:
-                    return "", f"Error processing DOCX: {str(e)}"
-
-            elif file_extension == 'txt':
-                try:
-                    uploaded_file.seek(0)
-                    text = uploaded_file.read().decode('utf-8')
-                except UnicodeDecodeError:
-                    uploaded_file.seek(0)
-                    text = uploaded_file.read().decode('latin-1')
-                except Exception as e:
-                    return "", f"Error reading text file: {str(e)}"
+                        text = "\n".join(page.extract_text() or "" for page in pdf.pages)
 
                 if not text or len(text.strip()) < 50:
-                    return "", "Text file appears to be empty or too short to process."
+                    raise ValueError("Insufficient text extracted from PDF.")
                 return text, ""
 
-            else:
-                return "", f"Unsupported file format: {file_extension}"
+            except Exception as e:
+                logger.warning(f"pdfplumber failed: {str(e)}. Trying textract fallback...")
 
-        except Exception as e:
-            logger.error(f"Unexpected error in text extraction: {str(e)}")
-            return "", f"Unexpected error: {str(e)}"
+            try:
+                import textract
+                if isinstance(uploaded_file, str):
+                    tmp_file_path = uploaded_file
+                else:
+                    tmp_file_path = TextExtractor.save_uploaded_to_temp_file(uploaded_file, ".pdf")
+
+                text = textract.process(tmp_file_path).decode('utf-8')
+
+                if not text or len(text.strip()) < 50:
+                    return "", "PDF appears to be empty or too short to process."
+                return text, ""
+
+            except Exception as e:
+                return "", f"Error processing PDF with textract: {str(e)}"
+            finally:
+                if not isinstance(uploaded_file, str) and os.path.exists(tmp_file_path):
+                    os.unlink(tmp_file_path)
+
+        elif file_extension == 'docx':
+            try:
+                import docx2txt
+                if isinstance(uploaded_file, str):
+                    tmp_file_path = uploaded_file
+                else:
+                    tmp_file_path = TextExtractor.save_uploaded_to_temp_file(uploaded_file, ".docx")
+
+                text = docx2txt.process(tmp_file_path)
+
+                if not text or len(text.strip()) < 50:
+                    return "", "DOCX appears to be empty or too short to process."
+                return text, ""
+            except Exception as e:
+                return "", f"Error processing DOCX: {str(e)}"
+            finally:
+                if not isinstance(uploaded_file, str) and os.path.exists(tmp_file_path):
+                    os.unlink(tmp_file_path)
+
+        elif file_extension == 'txt':
+            try:
+                if isinstance(uploaded_file, str):
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        text = f.read()
+                else:
+                    uploaded_file.seek(0)
+                    text = uploaded_file.read().decode('utf-8')
+            except UnicodeDecodeError:
+                uploaded_file.seek(0)
+                text = uploaded_file.read().decode('latin-1')
+            except Exception as e:
+                return "", f"Error reading text file: {str(e)}"
+
+            if not text or len(text.strip()) < 50:
+                return "", "Text file appears to be empty or too short to process."
+            return text, ""
+
+        else:
+            return "", f"Unsupported file format: {file_extension}"
+
+    except Exception as e:
+        logger.error(f"Unexpected error in text extraction: {str(e)}")
+        return "", f"Unexpected error: {str(e)}"
 
 # Enhanced skill extraction
 class SkillExtractor:
